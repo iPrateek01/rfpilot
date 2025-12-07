@@ -1,0 +1,269 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum RFPStatus {
+  DRAFT
+  SENT
+  RESPONSES_RECEIVED
+  EVALUATED
+  AWARDED
+  CANCELLED
+}
+
+enum ProposalStatus {
+  RECEIVED
+  PARSING
+  PARSED
+  EVALUATED
+  ACCEPTED
+  REJECTED
+}
+
+model RFP {
+  id                    String        @id @default(uuid())
+  title                 String        @db.VarChar(500)
+  description           String        @db.Text
+  rawRequirements       String        @db.Text
+  structuredData        Json?
+  budget                Decimal?      @db.Decimal(15, 2)
+  deadline              DateTime?
+  deliveryDeadline      DateTime?
+  paymentTerms          String?       @db.VarChar(200)
+  warrantyRequirements  String?       @db.Text
+  additionalTerms       String?       @db.Text
+  status                RFPStatus     @default(DRAFT)
+  
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+  
+  items                 RFPItem[]
+  proposals             Proposal[]
+  emailThreads          EmailThread[]
+  rfpVendors            RFPVendor[]
+  
+  @@index([status])
+  @@index([createdAt])
+}
+
+model RFPItem {
+  id                    String        @id @default(uuid())
+  rfpId                 String
+  itemType              String        @db.VarChar(200)
+  description           String?       @db.Text
+  quantity              Int
+  specifications        Json?
+  unitBudget            Decimal?      @db.Decimal(15, 2)
+  priority              String?       @db.VarChar(50)
+  
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+  
+  rfp                   RFP           @relation(fields: [rfpId], references: [id], onDelete: Cascade)
+  proposalItems         ProposalItem[]
+  
+  @@index([rfpId])
+}
+
+model Vendor {
+  id                    String        @id @default(uuid())
+  name                  String        @db.VarChar(255)
+  email                 String        @unique @db.VarChar(255)
+  contactPerson         String?       @db.VarChar(255)
+  phone                 String?       @db.VarChar(50)
+  address               String?       @db.Text
+  specializations       String[]
+  rating                Decimal?      @db.Decimal(3, 2)
+  notes                 String?       @db.Text
+  isActive              Boolean       @default(true)
+  
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+  
+  proposals             Proposal[]
+  emailThreads          EmailThread[]
+  rfpVendors            RFPVendor[]
+  
+  @@index([email])
+  @@index([isActive])
+}
+
+model RFPVendor {
+  id                    String        @id @default(uuid())
+  rfpId                 String
+  vendorId              String
+  sentAt                DateTime?
+  emailSent             Boolean       @default(false)
+  emailMessageId        String?       @db.VarChar(500)
+  
+  createdAt             DateTime      @default(now())
+  
+  rfp                   RFP           @relation(fields: [rfpId], references: [id], onDelete: Cascade)
+  vendor                Vendor        @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  
+  @@unique([rfpId, vendorId])
+  @@index([rfpId])
+  @@index([vendorId])
+}
+
+model Proposal {
+  id                    String          @id @default(uuid())
+  rfpId                 String
+  vendorId              String
+  emailMessageId        String?         @db.VarChar(500)
+  subject               String?         @db.VarChar(500)
+  rawResponse           String          @db.Text
+  parsedData            Json?
+  
+  totalPrice            Decimal?        @db.Decimal(15, 2)
+  deliveryTimeline      String?         @db.VarChar(200)
+  paymentTerms          String?         @db.VarChar(200)
+  warrantyOffered       String?         @db.VarChar(200)
+  additionalNotes       String?         @db.Text
+  
+  status                ProposalStatus  @default(RECEIVED)
+  aiScore               Decimal?        @db.Decimal(5, 2)
+  aiEvaluation          String?         @db.Text
+  complianceScore       Decimal?        @db.Decimal(5, 2)
+  priceScore            Decimal?        @db.Decimal(5, 2)
+  termsScore            Decimal?        @db.Decimal(5, 2)
+  
+  receivedAt            DateTime        @default(now())
+  evaluatedAt           DateTime?
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+  
+  rfp                   RFP             @relation(fields: [rfpId], references: [id], onDelete: Cascade)
+  vendor                Vendor          @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  proposalItems         ProposalItem[]
+  attachments           Attachment[]
+  
+  @@unique([rfpId, vendorId])
+  @@index([rfpId])
+  @@index([vendorId])
+  @@index([status])
+  @@index([receivedAt])
+}
+
+model ProposalItem {
+  id                    String        @id @default(uuid())
+  proposalId            String
+  rfpItemId             String?
+  itemType              String        @db.VarChar(200)
+  description           String?       @db.Text
+  quantity              Int
+  unitPrice             Decimal       @db.Decimal(15, 2)
+  totalPrice            Decimal       @db.Decimal(15, 2)
+  specifications        Json?
+  specificationsMet     Json?
+  notes                 String?       @db.Text
+  
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+  
+  proposal              Proposal      @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  rfpItem               RFPItem?      @relation(fields: [rfpItemId], references: [id], onDelete: SetNull)
+  
+  @@index([proposalId])
+  @@index([rfpItemId])
+}
+
+model Attachment {
+  id                    String        @id @default(uuid())
+  proposalId            String
+  filename              String        @db.VarChar(500)
+  originalFilename      String        @db.VarChar(500)
+  filePath              String        @db.VarChar(1000)
+  mimeType              String        @db.VarChar(200)
+  sizeBytes             BigInt
+  extractedText         String?       @db.Text
+  
+  createdAt             DateTime      @default(now())
+  
+  proposal              Proposal      @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  
+  @@index([proposalId])
+}
+
+model EmailThread {
+  id                    String        @id @default(uuid())
+  rfpId                 String
+  vendorId              String
+  subject               String        @db.VarChar(500)
+  threadId              String?       @db.VarChar(500)
+  lastMessageId         String?       @db.VarChar(500)
+  lastMessageAt         DateTime?
+  messageCount          Int           @default(0)
+  
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+  
+  rfp                   RFP           @relation(fields: [rfpId], references: [id], onDelete: Cascade)
+  vendor                Vendor        @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  messages              EmailMessage[]
+  
+  @@unique([rfpId, vendorId])
+  @@index([rfpId])
+  @@index([vendorId])
+  @@index([threadId])
+}
+
+model EmailMessage {
+  id                    String        @id @default(uuid())
+  threadId              String
+  messageId             String        @db.VarChar(500)
+  inReplyTo             String?       @db.VarChar(500)
+  from                  String        @db.VarChar(255)
+  to                    String[]
+  cc                    String[]
+  subject               String        @db.VarChar(500)
+  body                  String        @db.Text
+  bodyHtml              String?       @db.Text
+  isInbound             Boolean
+  
+  receivedAt            DateTime?
+  sentAt                DateTime?
+  createdAt             DateTime      @default(now())
+  
+  thread                EmailThread   @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  
+  @@unique([messageId])
+  @@index([threadId])
+  @@index([messageId])
+}
+
+model ActivityLog {
+  id                    String        @id @default(uuid())
+  entityType            String        @db.VarChar(50)
+  entityId              String
+  action                String        @db.VarChar(100)
+  description           String?       @db.Text
+  metadata              Json?
+  
+  createdAt             DateTime      @default(now())
+  
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
+model SystemConfig {
+  id                    String        @id @default(uuid())
+  key                   String        @unique @db.VarChar(100)
+  value                 Json
+  description           String?       @db.Text
+  
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+  
+  @@index([key])
+}
